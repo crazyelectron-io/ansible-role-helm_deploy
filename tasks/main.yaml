@@ -1,0 +1,69 @@
+# file: roles/helm-deploy/tasks/main.yaml
+# synopsis: Generic role to deploy a Helm chart on Kubernetes
+---
+- ansible.builtin.include_tasks: prereq.yaml
+
+- name: "{{helm_chart_chart_name}} | Ensure the Helm repository is installed"
+  kubernetes.core.helm_info:
+    name: "{{helm_chart_repository}}"
+    release_namespace: "{{helm_chart_namespace}}"
+    release_state:
+      - all
+  delegate_to: localhost
+  register: helm__helm_repo_installed
+  run_once: true
+
+- name: "{{helm_chart_chart_name}} | Add the Helm repository if not yet installed"
+  kubernetes.core.helm_repository:
+    name: "{{helm_chart_repository}}"
+    repo_url: "{{helm_chart_url}}"
+  delegate_to: localhost
+  when:
+    - helm__helm_repo_installed.status is not defined
+  register: helm__helm_add_repo
+  run_once: true
+
+- name: "{{helm_chart_chart_name}} | Render the values file and install the chart"
+  block:
+    - name: "{{helm_chart_chart_name}} | Create temporary file for Helm values"
+      ansible.builtin.tempfile:
+        state: file
+        suffix: helm_values
+      changed_when: false
+      register: helm__values_tmp_file
+
+    - name: "{{helm_chart_chart_name}} | Set full path of passed values file"
+      set_fact:
+        values_file: "../{{ansible_parent_role_names[0]}}/{{helm_chart_values_file}}"
+
+    - name: "{{helm_chart_chart_name}} | Select values file for the Helm template"
+      ansible.builtin.template:
+        src: "{{values_file}}"
+        dest: "{{helm__values_tmp_file.path}}"
+        mode: 0600
+      changed_when: false
+
+    - name: "{{helm_chart_chart_name}} | Install the Helm chart"
+      kubernetes.core.helm:
+        name: "{{helm_chart_release_name}}"
+        chart_ref: "{{helm_chart_chart_name}}"
+        chart_version: "{{helm_chart_version}}"
+        release_namespace: "{{helm_chart_namespace}}"
+        create_namespace: false
+        update_repo_cache: true
+        wait: "{{helm_chart_wait}}"
+        values_files:
+          - "{{helm__values_tmp_file.path}}"
+      register: helm__helm_install_chart
+
+  always:
+    - name: "{{helm_chart_chart_name}} | Cleanup the temporary file for Helm values"
+      ansible.builtin.file:
+        path: "{{helm__values_tmp_file.path}}"
+        state: absent
+      changed_when: false
+      when:
+        - helm__values_tmp_file.path is defined
+
+  run_once: true
+  delegate_to: localhost

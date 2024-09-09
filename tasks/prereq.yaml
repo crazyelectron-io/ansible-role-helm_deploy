@@ -1,0 +1,30 @@
+# file: roles/helm-deploy/tasks/prereq.yaml
+# synopsis: Generic role to add a Helm repository
+---
+- name: Ensure the namespace exists
+  k8s:
+    name: "{{helm_chart_namespace}}"
+    api_version: v1
+    kind: Namespace
+    state: present
+  delegate_to: localhost
+  run_once: true
+
+- name: Check if the Helm repository is installed
+  kubernetes.core.helm_info:
+    name: "{{helm_chart_repository}}"
+    release_namespace: "{{helm_chart_namespace}}"
+    release_state:
+      - all
+  delegate_to: localhost
+  register: helm_repo_installed
+  run_once: true
+
+- name: Add the Helm repository if not yet installed
+  kubernetes.core.helm_repository:
+    name: "{{helm_chart_repository}}"
+    repo_url: "{{helm_chart_url}}"
+  delegate_to: localhost
+  when: helm_repo_installed.status is not defined
+  register: helm_add_repo
+  run_once: true
